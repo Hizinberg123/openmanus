@@ -1,6 +1,7 @@
-import multiprocessing
+import os
+import subprocess
 import sys
-from io import StringIO
+import tempfile
 from typing import Dict
 
 from app.tool.base import BaseTool
@@ -22,20 +23,6 @@ class PythonExecute(BaseTool):
         "required": ["code"],
     }
 
-    def _run_code(self, code: str, result_dict: dict, safe_globals: dict) -> None:
-        original_stdout = sys.stdout
-        try:
-            output_buffer = StringIO()
-            sys.stdout = output_buffer
-            exec(code, safe_globals, safe_globals)
-            result_dict["observation"] = output_buffer.getvalue()
-            result_dict["success"] = True
-        except Exception as e:
-            result_dict["observation"] = str(e)
-            result_dict["success"] = False
-        finally:
-            sys.stdout = original_stdout
-
     async def execute(
         self,
         code: str,
@@ -43,33 +30,44 @@ class PythonExecute(BaseTool):
     ) -> Dict:
         """
         Executes the provided Python code with a timeout.
-
-        Args:
-            code (str): The Python code to execute.
-            timeout (int): Execution timeout in seconds.
-
-        Returns:
-            Dict: Contains 'output' with execution output or error message and 'success' status.
+        Uses /usr/local/bin/python3 (Docker image) instead of host Python.
         """
+        # Use Python from Docker image, not host
+        python_path = "/usr/local/bin/python3"
+        if not os.path.exists(python_path):
+            python_path = sys.executable
 
-        with multiprocessing.Manager() as manager:
-            result = manager.dict({"observation": "", "success": False})
-            if isinstance(__builtins__, dict):
-                safe_globals = {"__builtins__": __builtins__}
-            else:
-                safe_globals = {"__builtins__": __builtins__.__dict__.copy()}
-            proc = multiprocessing.Process(
-                target=self._run_code, args=(code, result, safe_globals)
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+            f.write(code)
+            temp_path = f.name
+
+        try:
+            proc = subprocess.Popen(
+                [python_path, temp_path],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
             )
-            proc.start()
-            proc.join(timeout)
-
-            # timeout process
-            if proc.is_alive():
-                proc.terminate()
-                proc.join(1)
+            try:
+                stdout, _ = proc.communicate(timeout=timeout)
+                return {
+                    "observation": stdout,
+                    "success": proc.returncode == 0,
+                }
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
                 return {
                     "observation": f"Execution timeout after {timeout} seconds",
                     "success": False,
                 }
-            return dict(result)
+        except Exception as e:
+            return {
+                "observation": str(e),
+                "success": False,
+            }
+        finally:
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass

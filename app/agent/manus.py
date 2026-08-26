@@ -11,8 +11,11 @@ from app.schema import Message
 from app.tool import Terminate, ToolCollection
 from app.tool.ask_human import AskHuman
 from app.tool.mcp import MCPClients, MCPClientTool
+from app.tool.bash import Bash
+from app.tool.crawl4ai import Crawl4aiTool
 from app.tool.python_execute import PythonExecute
 from app.tool.str_replace_editor import StrReplaceEditor
+from app.tool.web_search import WebSearch
 
 
 _BROWSER_USE_SERVER_ID = "browser_use"
@@ -59,6 +62,9 @@ class Manus(ToolCallAgent):
             PythonExecute(),
             StrReplaceEditor(),
             AskHuman(),
+            Bash(),
+            WebSearch(),
+            Crawl4aiTool(),
             Terminate(),
         )
     )
